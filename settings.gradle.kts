@@ -21,4 +21,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "TelematicsDriverMonitor"
 include(":app")
- 
+include(":app:Data")
+include(":app:Domain")
