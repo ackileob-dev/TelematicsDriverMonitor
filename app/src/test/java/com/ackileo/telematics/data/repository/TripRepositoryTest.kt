@@ -33,7 +33,7 @@ class TripRepositoryTest {
     }
 
     @Test
-    fun `refreshTrips - success - clears local cache then inserts new data`() = runTest {
+    fun testRefreshTripsSuccessClearsLocalCacheThenInsertsNewData() = runTest {
         // Arrange
         val mockTrips = listOf(createMockTrip(id = "trip_1"))
         whenever(apiService.getTrips()).thenReturn(mockTrips)
@@ -51,7 +51,7 @@ class TripRepositoryTest {
     }
 
     @Test
-    fun `refreshTrips - empty list - clears cache and completes successfully`() = runTest {
+    fun testRefreshTripsEmptyListClearsCacheAndCompletesSuccessfully() = runTest {
         // Arrange
         whenever(apiService.getTrips()).thenReturn(emptyList())
 
@@ -64,7 +64,7 @@ class TripRepositoryTest {
     }
 
     @Test
-    fun `refreshTrips - network failure - returns failure and preserves local cache`() = runTest {
+    fun testRefreshTripsNetworkFailureReturnsFailureAndPreservesLocalCache() = runTest {
         // Arrange
         val networkError = RuntimeException("Network Error")
         whenever(apiService.getTrips()).thenThrow(networkError)

@@ -1,12 +1,9 @@
-
-
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android) // Required for Kotlin support
-    alias(libs.plugins.kotlin.kapt)    // <--- ADD THIS LINE
-    alias(libs.plugins.dagger.hilt)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.ksp)
-
+    alias(libs.plugins.dagger.hilt)
 }
 
 android {
@@ -18,11 +15,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
     }
-    ksp {
-        arg("room.incremental", "true")
-        // This tells KSP not to crash if it hits a type it doesn't recognize yet
-        arg("ksp.incremental.interprocedural", "true")
-    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -34,20 +27,25 @@ android {
 }
 
 dependencies {
-    // Hilt
+
     api(project(":app:Domain"))
 
-    // Hilt Navigation Compose
-    implementation(libs.androidx.hilt.navigation.compose)
-//ksp
-
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
-    // Room
+    // Hilt
     implementation(libs.dagger.hilt)
     kapt(libs.dagger.hilt.compiler)
 
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
-    // ... rest of your dependencies
+    // Unit Testing
+    testImplementation(libs.junit)
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.kotlin)
+    testImplementation(libs.kotlinx.coroutines.test)
+
+    // Android Tests
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }
