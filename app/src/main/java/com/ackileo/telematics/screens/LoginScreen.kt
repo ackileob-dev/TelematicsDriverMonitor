@@ -47,8 +47,7 @@ fun LoginScreen(
             onLoginClick = { email, password ->
                 viewModel.login(email, password)
             },
-            onNavigateToRegister = onNavigateToRegister,
-            onBypassLogin = onLoginSuccess // Keep for testing
+            onNavigateToRegister = onNavigateToRegister
         )
     }
 }
@@ -58,11 +57,11 @@ fun LoginScreenContent(
     authState: AuthState,
     snackbarHostState: SnackbarHostState,
     onLoginClick: (String, String) -> Unit,
-    onNavigateToRegister: () -> Unit,
-    onBypassLogin: () -> Unit
+    onNavigateToRegister: () -> Unit
 ) {
-    var identifier by rememberSaveable { mutableStateOf("") }
+    var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    val errorMessage = (authState as? AuthState.Error)?.message
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -92,9 +91,9 @@ fun LoginScreenContent(
                 )
 
                 OutlinedTextField(
-                    value = identifier,
-                    onValueChange = { identifier = it },
-                    label = { Text("Email or License Number") },
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     enabled = authState !is AuthState.Loading
@@ -116,26 +115,30 @@ fun LoginScreenContent(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Button(
-                    onClick = { onLoginClick(identifier, password) },
+                    onClick = { onLoginClick(email, password) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
                     enabled = authState !is AuthState.Loading &&
-                            identifier.isNotBlank() &&
+                            email.isNotBlank() &&
                             password.isNotBlank()
                 ) {
                     Text("Login")
+                }
+
+                if (!errorMessage.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 TextButton(onClick = onNavigateToRegister) {
                     Text("Don't have an account? Register")
-                }
-
-                // Temporary Bypass for development
-                TextButton(onClick = onBypassLogin) {
-                    Text("Bypass (Dev Only)", color = MaterialTheme.colorScheme.secondary)
                 }
             }
 
@@ -160,8 +163,7 @@ fun LoginScreenPreview() {
             authState = AuthState.Idle,
             snackbarHostState = remember { SnackbarHostState() },
             onLoginClick = { _, _ -> },
-            onNavigateToRegister = {},
-            onBypassLogin = {}
+            onNavigateToRegister = {}
         )
     }
 }

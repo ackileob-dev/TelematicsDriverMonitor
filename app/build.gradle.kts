@@ -10,6 +10,15 @@ plugins {
 
 }
 
+val devApiScheme = (findProperty("DEV_API_SCHEME") as String?) ?: "http"
+val devApiHost = (findProperty("DEV_API_HOST") as String?) ?: "localhost:5000"
+val devApiBasePath = (findProperty("DEV_API_BASE_PATH") as String?) ?: "/api/"
+
+val prodApiScheme = (findProperty("PROD_API_SCHEME") as String?) ?: "https"
+val prodApiHost = (findProperty("PROD_API_HOST") as String?) ?: "api.telematicsmonitor.com"
+val prodApiBasePath = (findProperty("PROD_API_BASE_PATH") as String?) ?: "/api/"
+val mapsApiKey = (findProperty("MAPS_API_KEY") as String?) ?: ""
+
 android {
     namespace = "com.ackileo.telematics"
     compileSdk = 35
@@ -22,6 +31,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
     ksp {
         arg("room.incremental", "true")
@@ -32,7 +42,18 @@ android {
 
     
     buildTypes {
+        debug {
+            buildConfigField("String", "API_SCHEME", "\"$devApiScheme\"")
+            buildConfigField("String", "API_HOST", "\"$devApiHost\"")
+            buildConfigField("String", "API_BASE_PATH", "\"$devApiBasePath\"")
+            manifestPlaceholders["USES_CLEARTEXT_TRAFFIC"] = "true"
+        }
+
         release {
+            buildConfigField("String", "API_SCHEME", "\"$prodApiScheme\"")
+            buildConfigField("String", "API_HOST", "\"$prodApiHost\"")
+            buildConfigField("String", "API_BASE_PATH", "\"$prodApiBasePath\"")
+            manifestPlaceholders["USES_CLEARTEXT_TRAFFIC"] = "false"
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -52,6 +73,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -68,20 +90,20 @@ android {
     }
 }
 
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variantBuilder ->
+        // Local JVM unit tests are verified on debug variant.
+        variantBuilder.enableUnitTest = false
+    }
+}
+
 dependencies {
     // --- App Modules ---
     implementation(project(":app:Data"))
     implementation(project(":app:Domain"))
 
     // --- Dependency Injection (Hilt) ---
-// Inside app/build.gradle.kts dependencies block
-// REMOVE the hardcoded lines:
-// implementation("com.google.dagger:hilt-android:2.52")
-// ksp("com.google.dagger:hilt-compiler:2.52")
-
-// USE the catalog references:
     implementation(libs.dagger.hilt)
-    implementation(libs.firebase.appdistribution.gradle)
     ksp(libs.dagger.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
@@ -90,7 +112,9 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+
+    // --- Security ---
+    implementation(libs.androidx.security.crypto)
 
 
     // --- Firebase ---
@@ -140,8 +164,10 @@ dependencies {
 
     // --- Unit Testing ---
     testImplementation(libs.junit)
-    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.kotlin)
+    testImplementation("org.mockito:mockito-inline:5.2.0")
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation("androidx.arch.core:core-testing:2.2.0")
 
     // --- Instrumented Testing ---
@@ -157,5 +183,4 @@ dependencies {
 
 
 }
-
 

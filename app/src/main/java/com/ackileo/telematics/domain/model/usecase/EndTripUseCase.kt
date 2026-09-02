@@ -3,13 +3,13 @@ package com.ackileo.telematics.domain.model.usecase
 
 
 import com.ackileo.telematics.data.remote.models.TripSummary
-import com.ackileo.telematics.utils.DrivingSensorManager
-import com.ackileo.telematics.utils.LocationTracker
+import com.ackileo.telematics.utils.DrivingSensorManagerPort
+import com.ackileo.telematics.utils.LocationTrackerPort
 import javax.inject.Inject
 
 class EndTripUseCase @Inject constructor(
-    private val locationTracker: LocationTracker,
-    private val sensorManager: DrivingSensorManager,
+    private val locationTracker: LocationTrackerPort,
+    private val sensorManager: DrivingSensorManagerPort,
     private val calculateSafetyScoreUseCase: CalculateSafetyScoreUseCase
 ) {
     /**

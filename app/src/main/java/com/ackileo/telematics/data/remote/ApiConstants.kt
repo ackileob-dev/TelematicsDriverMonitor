@@ -1,3 +1,21 @@
 package com.ackileo.telematics.data.remote
 
-const val BASE_URL = "http://192.168.1.2:5000/api/"
+object ApiConstants {
+
+    private fun normalizePath(path: String): String {
+        val withLeadingSlash =
+            if (path.startsWith("/")) path else "/$path"
+
+        return if (withLeadingSlash.endsWith("/")) {
+            withLeadingSlash
+        } else {
+            "$withLeadingSlash/"
+        }
+    }
+
+    fun baseUrl(apiScheme: String, apiHost: String, apiBasePath: String): String {
+        return "$apiScheme://" +
+                apiHost +
+                normalizePath(apiBasePath)
+    }
+}

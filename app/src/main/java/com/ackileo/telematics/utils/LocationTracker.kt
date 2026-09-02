@@ -9,6 +9,7 @@ import android.os.Looper
 import com.google.android.gms.location.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,17 +18,25 @@ data class LocationData(
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
     val speedKmh: Float = 0f,
-    val totalDistanceKm: Double = 0.0
+    val totalDistanceKm: Double = 0.0,
+    val accuracyMeters: Float = Float.MAX_VALUE,
+    val timestampMillis: Long = 0L,
 )
+
+interface LocationTrackerPort {
+    val locationDetails: StateFlow<LocationData>
+    fun startTracking()
+    fun stopTracking()
+}
 
 @Singleton
 class LocationTracker @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : LocationTrackerPort {
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
 
     private val _locationDetails = MutableStateFlow(LocationData())
-    val locationDetails = _locationDetails.asStateFlow()
+    override val locationDetails = _locationDetails.asStateFlow()
 
     private var lastLocation: Location? = null
     private var totalDistanceMeters = 0.0
@@ -56,14 +65,16 @@ class LocationTracker @Inject constructor(
             latitude = currentLocation.latitude,
             longitude = currentLocation.longitude,
             speedKmh = speedKmh,
-            totalDistanceKm = totalDistanceMeters / 1000.0
+            totalDistanceKm = totalDistanceMeters / 1000.0,
+            accuracyMeters = currentLocation.accuracy,
+            timestampMillis = currentLocation.time,
         )
 
         lastLocation = currentLocation
     }
 
     @SuppressLint("MissingPermission")
-    fun startTracking() {
+    override fun startTracking() {
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
             .setMinUpdateIntervalMillis(1000)
             .build()
@@ -75,7 +86,7 @@ class LocationTracker @Inject constructor(
         )
     }
 
-    fun stopTracking() {
+    override fun stopTracking() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
     }
 }

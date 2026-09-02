@@ -12,8 +12,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
+import com.ackileo.telematics.ui.screen.TripHistoryScreen
 import com.ackileo.telematics.ui.viewmodel.AuthViewModel
 import com.ackileo.telematics.ui.viewmodel.DashboardViewModel
+import com.ackileo.telematics.ui.viewmodel.ProfileViewModel
 
 /**
  * Extension function to define all navigation destinations.
@@ -97,10 +99,10 @@ fun NavGraphBuilder.appNavGraph(navController: NavHostController) {
 
     // 7. Profile Screen
     composable(Screen.Profile.route) {
-        val authViewModel: AuthViewModel = hiltViewModel()
+        val profileViewModel: ProfileViewModel = hiltViewModel()
         ProfileScreen(
             navController = navController,
-            viewModel = authViewModel,
+            viewModel = profileViewModel,
             onLogout = {
                 navController.navigate(Screen.Login.route) {
                     popUpTo(0) { inclusive = true }
@@ -111,7 +113,7 @@ fun NavGraphBuilder.appNavGraph(navController: NavHostController) {
 
     // 8. Trip History
     composable("trip_history") {
-        PlaceholderScreen("Trip History")
+        TripHistoryScreen()
     }
 }
 

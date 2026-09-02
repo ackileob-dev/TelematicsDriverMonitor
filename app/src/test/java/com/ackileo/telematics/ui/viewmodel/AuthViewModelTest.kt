@@ -1,27 +1,27 @@
 package com.ackileo.telematics.ui.viewmodel
 
+import android.net.Uri
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import com.ackileo.telematics.data.local.SharedPrefManager
-import com.ackileo.telematics.data.remote.models.AuthResponse
+import com.ackileo.telematics.data.local.SessionStateStore
+import com.ackileo.telematics.data.remote.dto.LoginResponse
+import com.ackileo.telematics.data.remote.dto.LoginRequest
+import com.ackileo.telematics.data.remote.dto.RegisterRequest
 import com.ackileo.telematics.data.repository.AuthRepository
-import com.google.firebase.auth.FirebaseAuth
-import kotlinx.coroutines.Dispatchers
+import com.ackileo.telematics.data.repository.DocumentType
+import com.ackileo.telematics.utils.UploadStatus
+import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
+import com.ackileo.telematics.test.MainDispatcherRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import org.mockito.kotlin.any
-import org.mockito.kotlin.mock
-import org.mockito.kotlin.verify
-import org.mockito.kotlin.whenever
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelTest {
@@ -29,28 +29,53 @@ class AuthViewModelTest {
     @get:Rule
     val instantTaskExecutorRule = InstantTaskExecutorRule()
 
-    private val testDispatcher = StandardTestDispatcher()
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
-    private val repository: AuthRepository = mock()
-    private val prefManager: SharedPrefManager = mock()
-    private val firebaseAuth: FirebaseAuth = mock()
+    private class FakeAuthRepository : AuthRepository {
+        var loginResult: Result<LoginResponse> = Result.failure(IllegalStateException("Login result not configured"))
+        var registerResult: Result<Unit> = Result.success(Unit)
+        var loginCallCount: Int = 0
+        var logoutCallCount: Int = 0
+        var loginHandler: (suspend (LoginRequest) -> Result<LoginResponse>)? = null
+
+        override suspend fun register(request: RegisterRequest): Result<Unit> = registerResult
+
+        override suspend fun login(request: LoginRequest): Result<LoginResponse> {
+            loginCallCount++
+            return loginHandler?.invoke(request) ?: loginResult
+        }
+
+        override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
+
+        override fun logout() {
+            logoutCallCount++
+        }
+
+        override fun getCurrentUser(): FirebaseUser? = null
+
+        override suspend fun uploadDriverDocument(
+            userId: String,
+            uri: Uri,
+            docType: DocumentType,
+        ): Flow<UploadStatus> = emptyFlow()
+    }
+
+    // AuthViewModel only depends on AuthRepository + TokenManager.
+    // SharedPrefManager and FirebaseAuth are used inside AuthRepositoryImpl, not the ViewModel.
+    private val repository = FakeAuthRepository()
+    private val tokenManager = object : SessionStateStore {
+        override fun hasAccessToken(): Boolean = false
+    }
 
     private lateinit var viewModel: AuthViewModel
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
-
         viewModel = AuthViewModel(
             repository = repository,
-            prefManager = prefManager,
-            firebaseAuth = firebaseAuth
+            tokenManager = tokenManager,
         )
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
     }
 
     @Test
@@ -59,28 +84,26 @@ class AuthViewModelTest {
     }
 
     @Test
-    fun testLoginSuccessUpdatesStateToSuccessAndSavesToken() = runTest {
-        val token = "test_token"
-
-        val response = AuthResponse(
-            token = token,
+    fun testLoginSuccessUpdatesStateToSuccess() = runTest {
+        val response = LoginResponse(
+            token = "test_token",
             driverId = "driver_123",
-            fullName = "John Doe"
+            fullName = "John Doe",
         )
+        val allowLoginToFinish = CompletableDeferred<Unit>()
+        repository.loginHandler = {
+            allowLoginToFinish.await()
+            Result.success(response)
+        }
 
-        whenever(repository.login(any()))
-            .thenReturn(Result.success(response))
-
-        viewModel.login(
-            identifier = "user@test.com",
-            pass = "password"
-        )
+        // AuthViewModel.login() parameter names are `email` and `password`.
+        viewModel.login(email = "user@test.com", password = "password123")
 
         assertTrue(viewModel.authState.value is AuthState.Loading)
 
-        advanceUntilIdle()
+        allowLoginToFinish.complete(Unit)
 
-        verify(prefManager).saveAuthToken(token)
+        advanceUntilIdle()
 
         assertTrue(viewModel.authState.value is AuthState.Success)
     }
@@ -88,53 +111,42 @@ class AuthViewModelTest {
     @Test
     fun testLoginFailureUpdatesStateToError() = runTest {
         val error = "Unauthorized"
+        repository.loginResult = Result.failure(Exception(error))
 
-        whenever(repository.login(any()))
-            .thenReturn(Result.failure(Exception(error)))
-
-        viewModel.login(
-            identifier = "user@test.com",
-            pass = "wrong_password"
-        )
+        viewModel.login(email = "user@test.com", password = "wrong_password")
 
         advanceUntilIdle()
 
         val state = viewModel.authState.value
-
         assertTrue(state is AuthState.Error)
         assertEquals(error, (state as AuthState.Error).message)
     }
 
     @Test
-    fun testLoginWithBlankFieldsReturnsErrorImmediately() {
-        viewModel.login("", "")
+    fun testLoginWithBlankEmailReturnsValidationErrorImmediately() = runTest {
+        // validateLogin() returns "Email is required" when email is blank — not "Fields cannot be empty".
+        viewModel.login(email = "", password = "")
 
         val state = viewModel.authState.value
-
         assertTrue(state is AuthState.Error)
-        assertEquals(
-            "Fields cannot be empty",
-            (state as AuthState.Error).message
-        )
+        assertEquals("Email is required", (state as AuthState.Error).message)
+        assertEquals(0, repository.loginCallCount)
     }
 
     @Test
-    fun testLogoutSignsOutFirebaseAndClearsToken() {
+    fun testLogoutCallsRepositoryLogoutAndResetsState() {
+        // AuthViewModel.logout() delegates to repository.logout() then resets state to Idle.
         viewModel.logout()
 
-        verify(firebaseAuth).signOut()
-        verify(prefManager).saveAuthToken("")
+        assertEquals(1, repository.logoutCallCount)
+        assertEquals(AuthState.Idle, viewModel.authState.value)
     }
 
     @Test
     fun testResetAuthStateReturnsStateToIdle() = runTest {
-        whenever(repository.login(any()))
-            .thenReturn(Result.failure(Exception("Failure")))
+        repository.loginResult = Result.failure(Exception("Failure"))
 
-        viewModel.login(
-            identifier = "user@test.com",
-            pass = "password"
-        )
+        viewModel.login(email = "user@test.com", password = "password123")
 
         advanceUntilIdle()
 
@@ -142,9 +154,6 @@ class AuthViewModelTest {
 
         viewModel.resetAuthState()
 
-        assertEquals(
-            AuthState.Idle,
-            viewModel.authState.value
-        )
+        assertEquals(AuthState.Idle, viewModel.authState.value)
     }
 }

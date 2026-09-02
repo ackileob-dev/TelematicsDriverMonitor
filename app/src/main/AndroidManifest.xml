@@ -18,8 +18,8 @@
 
 
           <application
-              android:usesCleartextTraffic="true"
-              android:name=".TelematicsApplication">
+              android:name=".TelematicsApplication"
+              android:usesCleartextTraffic="${USES_CLEARTEXT_TRAFFIC}">
 
 
               <service
@@ -59,7 +59,7 @@
 
           <meta-data
               android:name="com.google.android.geo.API_KEY"
-              android:value=" AIzaSyDu37VkE1u8ziTYKTWUQ3aiQ2ilY9-92W0 "/> <!-- Replace with your actual API key -->
+              android:value="${MAPS_API_KEY}" />
     </application>
 
 </manifest>

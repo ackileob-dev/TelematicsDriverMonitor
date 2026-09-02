@@ -16,19 +16,45 @@ class CalculateSafetyScoreUseCaseTest {
 
     @Test
     fun testWhenEventsOccurScoreShouldDecreaseAccordingly() {
-        // Logic: 100 - (1*5) - (1*10) - (1*10) - (1*15) = 60
+        // Implemented logic: overspeed -10, harsh brake -5, rapid accel -5, phone use -15
+        // 100 - (10 + 5 + 5 + 15) = 65
         val score = useCase(
             overSpeedCount = 1,
             harshBrakeCount = 1,
             rapidAccelCount = 1,
             phoneUsageCount = 1
         )
-        assertEquals(60, score)
+        assertEquals(65, score)
     }
 
     @Test
     fun testScoreShouldNotDropBelow0() {
         val score = useCase(100, 100, 100, 100)
+        assertEquals(0, score)
+    }
+
+    @Test
+    fun testSingleEventOverspeedPenaltyApplied() {
+        val score = useCase(overSpeedCount = 1, harshBrakeCount = 0, rapidAccelCount = 0, phoneUsageCount = 0)
+        assertEquals(90, score)
+    }
+
+    @Test
+    fun testRepeatedEventsCombineDeterministically() {
+        // 100 - (2*10) - (3*5) - (1*5) - (1*15) = 45
+        val score = useCase(overSpeedCount = 2, harshBrakeCount = 3, rapidAccelCount = 1, phoneUsageCount = 1)
+        assertEquals(45, score)
+    }
+
+    @Test
+    fun testScoreUpperBoundRemains100() {
+        val score = useCase(overSpeedCount = 0, harshBrakeCount = 0, rapidAccelCount = 0, phoneUsageCount = 0)
+        assertEquals(100, score)
+    }
+
+    @Test
+    fun testScoreLowerBoundRemains0() {
+        val score = useCase(overSpeedCount = 9, harshBrakeCount = 9, rapidAccelCount = 9, phoneUsageCount = 9)
         assertEquals(0, score)
     }
 }

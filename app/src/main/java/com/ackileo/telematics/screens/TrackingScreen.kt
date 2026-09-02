@@ -1,4 +1,8 @@
 package com.ackileo.telematics.screens
+
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -12,7 +16,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,8 +25,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.compose.rememberNavController
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.ackileo.telematics.ui.theme.TelematicsTheme
+import com.ackileo.telematics.ui.viewmodel.TrackingViewModel
+import com.ackileo.telematics.utils.DrivingEvent
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 // Data class for recent driving events
 data class DriveEvent(
@@ -34,15 +41,33 @@ data class DriveEvent(
 )
 
 @Composable
-fun TrackingScreen(onBack: () -> Unit = {}) {
-    var isTracking by remember { mutableStateOf(false) }
-    var riskStatus by remember { mutableStateOf("Safe") }
+fun TrackingScreen(
+    onBack: () -> Unit = {},
+    viewModel: TrackingViewModel = hiltViewModel(),
+) {
+    val uiState by viewModel.uiState.collectAsState()
 
-    val events = listOf(
-        DriveEvent("Harsh Braking", "10:45 AM", Icons.Default.Warning, Color(0xFFE57373)),
-        DriveEvent("Smooth Cornering", "10:42 AM", Icons.Default.CheckCircle, Color(0xFF81C784)),
-        DriveEvent("Over Speeding (85km/h)", "10:30 AM", Icons.Default.Speed, Color(0xFFFFB74D))
-    )
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.onLocationPermissionResult(granted)
+    }
+
+    val events = uiState.recentEvents.map {
+        DriveEvent(
+            title = formatEventTitle(it.eventType),
+            time = formatEventTime(it.timestampIso),
+            icon = iconForEventType(it.eventType),
+            color = colorForEventType(it.eventType),
+        )
+    }
+
+    val riskStatus = when {
+        uiState.activeEvent == DrivingEvent.PHONE_USAGE -> "Critical"
+        uiState.activeEvent == DrivingEvent.HARSH_BRAKING || uiState.activeEvent == DrivingEvent.RAPID_ACCELERATION -> "Warning"
+        uiState.activeEvent == DrivingEvent.SHARP_CORNERING -> "Warning"
+        else -> "Safe"
+    }
 
     // 1. Root Surface prevents the "Black Screen" issue
     Surface(
@@ -88,9 +113,41 @@ fun TrackingScreen(onBack: () -> Unit = {}) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    TelemetryCard(label = "Speed", value = "65", unit = "km/h", icon = Icons.Default.Speed, Modifier.weight(1f))
-                    TelemetryCard(label = "Distance", value = "12.4", unit = "km", icon = Icons.Default.Route, Modifier.weight(1f))
-                    TelemetryCard(label = "Duration", value = "24:15", unit = "min", icon = Icons.Default.Timer, Modifier.weight(1f))
+                    TelemetryCard(
+                        label = "Speed",
+                        value = uiState.location.speedKmh.toInt().toString(),
+                        unit = "km/h",
+                        icon = Icons.Default.Speed,
+                        Modifier.weight(1f)
+                    )
+                    TelemetryCard(
+                        label = "Distance",
+                        value = String.format(Locale.US, "%.1f", uiState.location.totalDistanceKm),
+                        unit = "km",
+                        icon = Icons.Default.Route,
+                        Modifier.weight(1f)
+                    )
+                    TelemetryCard(
+                        label = "Duration",
+                        value = formatDuration(uiState.tripDurationSeconds),
+                        unit = "",
+                        icon = Icons.Default.Timer,
+                        Modifier.weight(1f)
+                    )
+                }
+
+                Text(
+                    text = "Max ${uiState.maxSpeedKmh.toInt()} km/h  •  GPS ±${if (uiState.location.accuracyMeters.isFinite()) uiState.location.accuracyMeters.toInt() else "-"}m",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (!uiState.currentTripId.isNullOrBlank()) {
+                    Text(
+                        text = "Trip: ${uiState.currentTripId}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -117,36 +174,69 @@ fun TrackingScreen(onBack: () -> Unit = {}) {
                     // Event List
                     Box(modifier = Modifier.height(130.dp)) {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (events.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "No detected events yet",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
                             items(events) { event ->
                                 EventItem(event)
                             }
                         }
                     }
 
+                    if (!uiState.errorMessage.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = uiState.errorMessage ?: "",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Start/Stop Button
                     Button(
-                        onClick = { isTracking = !isTracking },
+                        onClick = {
+                            if (!uiState.hasLocationPermission) {
+                                permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            } else {
+                                viewModel.toggleTracking()
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isTracking) MaterialTheme.colorScheme.error
+                            containerColor = if (uiState.isTracking) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.primary
                         ),
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        enabled = !uiState.isLoading,
                     ) {
-                        Icon(
-                            imageVector = if (isTracking) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isTracking) "END TRIP" else "START TRIP",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
+                        if (uiState.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (uiState.isTracking) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (uiState.isTracking) "END TRIP" else "START TRIP",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
                 }
             }
@@ -163,6 +253,61 @@ fun TrackingScreen(onBack: () -> Unit = {}) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         }
+    }
+}
+
+private fun formatEventTitle(type: String): String {
+    return type.replace("_", " ").split(" ")
+        .joinToString(" ") { token -> token.replaceFirstChar { it.uppercaseChar() } }
+}
+
+private fun formatDuration(durationSeconds: Long): String {
+    val hours = durationSeconds / 3600
+    val minutes = (durationSeconds % 3600) / 60
+    val seconds = durationSeconds % 60
+    return if (hours > 0) {
+        String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+}
+
+private fun formatEventTime(timestampIso: String): String {
+    return runCatching {
+        val parsers = listOf(
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+        )
+        val parsed = parsers.firstNotNullOfOrNull { parser ->
+            parser.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            parser.parse(timestampIso)
+        }
+
+        if (parsed != null) {
+            SimpleDateFormat("hh:mm a", Locale.getDefault()).format(parsed)
+        } else {
+            timestampIso
+        }
+    }.getOrDefault(timestampIso)
+}
+
+private fun iconForEventType(type: String): ImageVector {
+    return when (type) {
+        "speeding" -> Icons.Default.Speed
+        "harsh_braking" -> Icons.Default.Warning
+        "harsh_acceleration" -> Icons.Default.KeyboardArrowUp
+        "sharp_cornering" -> Icons.Default.TurnSharpLeft
+        "phone_distraction" -> Icons.Default.PhoneAndroid
+        else -> Icons.Default.Info
+    }
+}
+
+private fun colorForEventType(type: String): Color {
+    return when (type) {
+        "phone_distraction" -> Color(0xFFE53935)
+        "speeding" -> Color(0xFFFFB74D)
+        "harsh_braking", "harsh_acceleration", "sharp_cornering" -> Color(0xFFE57373)
+        else -> Color(0xFF81C784)
     }
 }
 

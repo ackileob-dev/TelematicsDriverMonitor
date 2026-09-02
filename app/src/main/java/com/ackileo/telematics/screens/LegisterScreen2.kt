@@ -57,7 +57,7 @@ fun RegisterScreen(
             snackbarHostState = snackbarHostState,
             onBackClick = onBackClick,
             onRegisterClick = { name, email, nid, lNum, lClass, phone, pass ->
-                viewModel.register(name, email, nid, lNum, lClass, phone, pass)
+                viewModel.register(name, email, phone, pass, nid, lNum, lClass)
             }
         )
     }
@@ -82,6 +82,7 @@ fun RegisterScreenContent(
     var phoneNumber by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    val errorMessage = (authState as? AuthState.Error)?.message
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background, // Ensures background consistency
@@ -206,6 +207,15 @@ fun RegisterScreenContent(
                 } else {
                     Text("Complete Registration", fontWeight = FontWeight.Bold)
                 }
+            }
+
+            if (!errorMessage.isNullOrBlank()) {
+                Text(
+                    text = errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
             Spacer(modifier = Modifier.height(24.dp))
         }

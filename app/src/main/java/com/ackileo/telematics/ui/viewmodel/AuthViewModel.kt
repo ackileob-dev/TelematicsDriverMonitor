@@ -1,11 +1,11 @@
 package com.ackileo.telematics.ui.viewmodel
+import androidx.core.util.PatternsCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ackileo.telematics.data.local.SharedPrefManager
-import com.ackileo.telematics.data.remote.models.LoginRequest
-import com.ackileo.telematics.data.remote.models.RegisterRequest
+import com.ackileo.telematics.data.local.SessionStateStore
+import com.ackileo.telematics.data.remote.dto.LoginRequest
+import com.ackileo.telematics.data.remote.dto.RegisterRequest
 import com.ackileo.telematics.data.repository.AuthRepository
-import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,73 +22,65 @@ sealed class AuthState {
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val repository: AuthRepository,
-    private val prefManager: SharedPrefManager,
-    private val firebaseAuth: FirebaseAuth, // 2. Add this line
+    private val tokenManager: SessionStateStore,
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
     val authState = _authState.asStateFlow()
 
-    // Now firebaseAuth is resolved!
     val isUserLoggedIn: Boolean
-        get() = firebaseAuth.currentUser != null
+        get() = tokenManager.hasAccessToken()
 
     fun logout() {
-        firebaseAuth.signOut()
-        prefManager.saveAuthToken("") // Clear token from prefs too if needed
+        repository.logout()
+        _authState.value = AuthState.Idle
     }
-    /**
-     * Authenticate user via Email or License Number
-     */
-    fun login(identifier: String, pass: String) {
-        if (identifier.isBlank() || pass.isBlank()) {
-            _authState.value = AuthState.Error("Fields cannot be empty")
+
+    fun login(email: String, password: String) {
+        val validationError = validateLogin(email, password)
+        if (validationError != null) {
+            _authState.value = AuthState.Error(validationError)
             return
         }
 
         viewModelScope.launch {
             _authState.value = AuthState.Loading
-            val result = repository.login(LoginRequest(email = identifier, password = pass))
+            val result = repository.login(LoginRequest(email = email.trim(), password = password))
 
             result.fold(
-                onSuccess = { response ->
-                    prefManager.saveAuthToken(response.token)
+                onSuccess = {
                     _authState.value = AuthState.Success
                 },
                 onFailure = { error ->
-                    _authState.value = AuthState.Error(error.message ?: "Authentication Failed")
+                    _authState.value = AuthState.Error(error.message ?: "Authentication failed")
                 }
             )
         }
     }
 
-    /**
-     * Register a new driver account
-     */
     fun register(
         fullName: String,
         email: String,
-        nationalId: String,
-        licenseNumber: String,
-        licenseClass: String,
         phoneNumber: String,
         password: String,
+        nationalId: String = "",
+        licenseNumber: String = "",
+        licenseClass: String = "",
     ) {
-        if (fullName.isBlank() || email.isBlank() || password.isBlank()) {
-            _authState.value = AuthState.Error("Please fill in all required fields")
+        val validationError = validateRegister(fullName, email, password)
+        if (validationError != null) {
+            _authState.value = AuthState.Error(validationError)
             return
         }
 
         viewModelScope.launch {
             _authState.value = AuthState.Loading
             val request = RegisterRequest(
-                fullName = fullName,
-                email = email,
-                nationalId = nationalId,
-                licenseNumber = licenseNumber,
-                licenseClass = licenseClass,
-                phoneNumber = phoneNumber,
+                fullName = fullName.trim(),
+                email = email.trim(),
                 password = password
+                    .trim(),
+                phone = phoneNumber.trim().takeIf { it.isNotBlank() }
             )
 
             repository.register(request).fold(
@@ -96,18 +88,29 @@ class AuthViewModel @Inject constructor(
                     _authState.value = AuthState.Success
                 },
                 onFailure = { error ->
-                    _authState.value = AuthState.Error(error.message ?: "Registration Failed")
+                    _authState.value = AuthState.Error(error.message ?: "Registration failed")
                 }
             )
         }
     }
 
-    //firebase
-
-    /**
-     * Call this when navigating between Auth screens to clear previous errors/loading states
-     */
     fun resetAuthState() {
         _authState.value = AuthState.Idle
+    }
+
+    private fun validateLogin(email: String, password: String): String? {
+        if (email.isBlank()) return "Email is required"
+        if (!PatternsCompat.EMAIL_ADDRESS.matcher(email.trim()).matches()) return "Enter a valid email address"
+        if (password.isBlank()) return "Password is required"
+        return null
+    }
+
+    private fun validateRegister(fullName: String, email: String, password: String): String? {
+        if (fullName.isBlank()) return "Full name is required"
+        if (email.isBlank()) return "Email is required"
+        if (!PatternsCompat.EMAIL_ADDRESS.matcher(email.trim()).matches()) return "Enter a valid email address"
+        if (password.isBlank()) return "Password is required"
+        if (password.length < 6) return "Password must be at least 6 characters"
+        return null
     }
 }

@@ -1,19 +1,14 @@
 package com.ackileo.telematics.data.repository
 
 import com.ackileo.telematics.data.local.dao.DriverDao
+import com.ackileo.telematics.data.remote.ApiResponse
 import com.ackileo.telematics.data.remote.ApiService
-import com.ackileo.telematics.data.remote.models.TripResponse
+import com.ackileo.telematics.data.remote.dto.TripDto
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-
 import org.mockito.kotlin.*
-
-
-// Remove these if they are causing conflicts:
-// import com.ackileo.telematics.domain.model.Trip.*
-// import com.ackileo.telematics.data.remote.models.TripSummary.*
 
 /**
  * Unit tests for [TripRepositoryImpl]
@@ -34,15 +29,23 @@ class TripRepositoryTest {
 
     @Test
     fun testRefreshTripsSuccessClearsLocalCacheThenInsertsNewData() = runTest {
-        // Arrange
-        val mockTrips = listOf(createMockTrip(id = "trip_1"))
-        whenever(apiService.getTrips()).thenReturn(mockTrips)
+        // Arrange – stub the 5-parameter overload that refreshTrips() now calls.
+        val mockTrips = listOf(createMockTripDto(id = "trip_1"))
+        val apiResponse = ApiResponse(success = true, data = mockTrips)
+        whenever(
+            apiService.getTrips(
+                page = null,
+                limit = null,
+                driverId = null,
+                vehicleId = null,
+                status = null,
+            )
+        ).thenReturn(apiResponse)
 
         // Act
         val result = repository.refreshTrips()
 
-        // Assert
-        // We use inOrder to verify that clearing occurs strictly BEFORE inserting
+        // Assert – clear must happen strictly before insert (atomic refresh)
         val inOrder = inOrder(driverDao)
         inOrder.verify(driverDao).clearAllTrips()
         inOrder.verify(driverDao).insertTrips(any())
@@ -53,7 +56,16 @@ class TripRepositoryTest {
     @Test
     fun testRefreshTripsEmptyListClearsCacheAndCompletesSuccessfully() = runTest {
         // Arrange
-        whenever(apiService.getTrips()).thenReturn(emptyList())
+        val apiResponse = ApiResponse<List<TripDto>>(success = true, data = emptyList())
+        whenever(
+            apiService.getTrips(
+                page = null,
+                limit = null,
+                driverId = null,
+                vehicleId = null,
+                status = null,
+            )
+        ).thenReturn(apiResponse)
 
         // Act
         val result = repository.refreshTrips()
@@ -67,7 +79,15 @@ class TripRepositoryTest {
     fun testRefreshTripsNetworkFailureReturnsFailureAndPreservesLocalCache() = runTest {
         // Arrange
         val networkError = RuntimeException("Network Error")
-        whenever(apiService.getTrips()).thenThrow(networkError)
+        whenever(
+            apiService.getTrips(
+                page = null,
+                limit = null,
+                driverId = null,
+                vehicleId = null,
+                status = null,
+            )
+        ).thenThrow(networkError)
 
         // Act
         val result = repository.refreshTrips()
@@ -81,23 +101,19 @@ class TripRepositoryTest {
     }
 
     /**
-     * Helper Factory: Updated to match the String-based date format
-     * and the field names in the refactored TripResponse model.
+     * Helper Factory: produces a [TripDto] with the fields that refreshTrips() maps
+     * to [com.ackileo.telematics.data.local.entities.TripEntity].
      */
-    private fun createMockTrip(
+    private fun createMockTripDto(
         id: String = "trip_001",
-        score: Double = 90.0 // Changed to Double to match Safety Score logic
-    ): TripResponse {
-        return TripResponse(
-            // Ensure these names match your actual TripResponse class exactly
-            id = id,
-            startTime = "2023-10-27T10:00:00Z", // Fixed: Changed Long to String
-            endTime = "2023-10-27T10:30:00Z",   // Fixed: Changed Long to String
-            totalDistance = 15.5,
-            averageSpeed = 45.0,
-            duration = 30,
-            safetyScore = score
-
-        )
-    }
+        score: Double = 90.0,
+    ): TripDto = TripDto(
+        id = id,
+        startTime = "2023-10-27T10:00:00.000Z",
+        endTime = "2023-10-27T10:30:00.000Z",
+        totalDistance = 15.5,
+        averageSpeed = 45.0,
+        duration = 30,
+        safetyScore = score,
+    )
 }
